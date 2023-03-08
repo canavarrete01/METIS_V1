@@ -82,7 +82,8 @@ def atm_setup_1d(Temp,Mp,R0,P0,nwl,nalt,nlong,nlat,mu_func,Z):
     for k in range(nlat):        
         Pressures[:,:,k] = np.ones((nlong,nalt))*np.array(pressures)
         
-    return Temps, Pressures, alt_range, long_range, lat_range, atmosphere_grid    
+    return Temps, Pressures, alt_range, long_range, lat_range, atmosphere_grid  
+
 
 
 
