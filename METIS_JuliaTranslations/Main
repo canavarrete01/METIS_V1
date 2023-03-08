@@ -1,0 +1,185 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "ada27046-9512-4bb1-95cd-4ba0ab717d18",
+   "metadata": {},
+   "source": [
+    "# Main Draft " 
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "id": "03ced84d-c5f0-42bd-b660-fcae6103f9cf",
+   "metadata": {},
+   "outputs": [
+    {
+     "ename": "LoadError",
+     "evalue": "UndefVarError: importall not defined",
+     "output_type": "error",
+     "traceback": [
+      "UndefVarError: importall not defined",
+      "",
+      "Stacktrace:",
+      " [1] top-level scope",
+      "   @ In[18]:7"
+     ]
+    }
+   ],
+   "source": [
+    "using Plots\n",
+    "using Pandas\n",
+    "using PyCall\n",
+    "np = pyimport(\"numpy\")\n",
+    "\n",
+    "importall Absopac_J #.py files, not notebooks, dev in notebooks, but only import as .py\n",
+    "#using .Setup_Atm_J #import *\n",
+    "#using integrate_Transits_J #import *\n",
+    "\n",
+    "#from aerosols import *\n",
+    "#from vis import *\n",
+    "\n",
+    "# ----------------------------------------------------------------------------------------------\n",
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "import time\n",
+    "# ----------------------------------------------------------------------------------------------\n",
+    "from absopac import *\n",
+    "#from aerosols import *\n",
+    "from integrate_transits import *\n",
+    "from setup_atm import *\n",
+    "#from vis import *"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "id": "5903b5ec-f685-4c1d-87fd-83578572eeed",
+   "metadata": {},
+   "outputs": [
+    {
+     "ename": "NameError",
+     "evalue": "name 'alt_range' is not defined",
+     "output_type": "error",
+     "traceback": [
+      "\u001b[0;31m---------------------------------------------------------------------------\u001b[0m",
+      "\u001b[0;31mNameError\u001b[0m                                 Traceback (most recent call last)",
+      "Input \u001b[0;32mIn [4]\u001b[0m, in \u001b[0;36m<cell line: 15>\u001b[0;34m()\u001b[0m\n\u001b[1;32m     11\u001b[0m Temp \u001b[38;5;241m=\u001b[39m \u001b[38;5;241m1600\u001b[39m     \u001b[38;5;66;03m# isothermal temperature\u001b[39;00m\n\u001b[1;32m     14\u001b[0m solved_atm \u001b[38;5;241m=\u001b[39m atm_setup_1d(Temp,Mp,R0,P0,nwl,nalt,nlong,nlat,mu_func,Z)\n\u001b[0;32m---> 15\u001b[0m true_depth \u001b[38;5;241m=\u001b[39m effective_area_at_full_depth_no_long_dep(\u001b[43malt_range\u001b[49m, long_range,\n\u001b[1;32m     16\u001b[0m             lat_range, Temps, Pressures, gasOpacFunc,nwl,\u001b[38;5;241m100\u001b[39m,Z)\u001b[38;5;241m/\u001b[39m(np\u001b[38;5;241m.\u001b[39mpi\u001b[38;5;241m*\u001b[39mRstar\u001b[38;5;241m*\u001b[39m\u001b[38;5;241m*\u001b[39m\u001b[38;5;241m2.0\u001b[39m)\n",
+      "\u001b[0;31mNameError\u001b[0m: name 'alt_range' is not defined"
+     ]
+    }
+   ],
+   "source": [
+    "function tspec_from_dict(atmdict)\n",
+    "    #=\n",
+    "    Input dictionary should have \n",
+    "    wlrange in microns\n",
+    "    beta in degrees\n",
+    "    Z in terms of Zsolar\n",
+    "    everything else with dimensions in SI units\n",
+    "    =#\n",
+    "\n",
+    "    nalt = atmdict['nalt']   # number of altitude grid layers\n",
+    "    nlong = atmdict['nlong'] # number of longitude grid points\n",
+    "    nlat = atmdict['nlat']   # number of latitude grid points\n",
+    "    atm_type = atmdict['atm_type'] # should be one of: clear1d, clear3d, aerosol1d, aerosol3d, eqCloud1d, eqCloud3d    \n",
+    "    \n",
+    "    P0 = atmdict['P0']  # reference pressure in Pascals\n",
+    "    Z = atmdict['Z']    # metallicity in multiples of Z_sun\n",
+    "    Mp = atmdict['Mp']  # Mass of the planet in kg\n",
+    "    R0 = atmdict['Rp']  # reference radius for planet where it is opaque in meters\n",
+    "    Rstar = atmdict['Rstar'] # radius of star in meters\n",
+    "    wlrange = atmdict['wlrange'] # wavelength array for spectrum, in microns\n",
+    "    nwl = len(wlrange)\n",
+    "\n",
+    "    function gasOpacFunc(Z,T,P) #based on metallicity,\n",
+    "        # expects T in Kelvin, P in pascals\n",
+    "        # expects T and P to be 1d arrays\n",
+    "        # of equal length\n",
+    "        mu = mu_func(Z,T,P)\n",
+    "        rho = eos_idealgas(P, mu*gmol_to_kg, T)\n",
+    "        gas = gasopac_func(Z, wlrange, T, rho)\n",
+    "        rayleigh = rayleigh_func(Z, wlrange, T, rho)\n",
+    "        return gas + rayleigh # units are light blocked per m, has shape (nT, nwl) or (nwl,) if nz=1\n",
+    "    end \n",
+    "    \n",
+    "    if atm_type == 'clear1d':\n",
+    "        Temp = atmdict['Temp']\n",
+    "        solved_atm = atm_setup_1d(Temp,Mp,R0,P0,nwl,nalt,nlong,nlat,mu_func,Z) #atmosphere set up\n",
+    "        Temps, Pressures, alt_range, long_range, lat_range, atmosphere_grid = solved_atm\n",
+    "        true_depth = effective_area_at_full_depth_no_long_dep(alt_range, long_range, \n",
+    "                    lat_range, Temps, Pressures, gasOpacFunc,nwl,100,Z)/(np.pi*Rstar**2.0)\n",
+    "        \n",
+    "    else:\n",
+    "        print('Unknown atmosphere type, please pick one of: \\n') \n",
+    "        print('clear1d, clear3d, aerosol1d, aerosol3d, eqCloud1d, eqCloud3d')\n",
+    "        return None\n",
+    "    end \n",
+    "    return true_depth\n",
+    "end"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "be56d104-515f-4e8f-9414-4169f64d92ea",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "''"
+      ]
+     },
+     "execution_count": 6,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "atmdict = Dict{ \"wlrange\": np.logspace(np.log10(0.5),np.log10(12),300), # wavelength array for spectrum, in microns\n",
+    "            \"nalt\": 100, # number of altitude grid layers\n",
+    "            \"nlong\":60, # number of longitude grid points\n",
+    "            \"nlat\":60,  # number of latitude grid points\n",
+    " \n",
+    "            \"P0\":10^5, # reference pressure in Pascals\n",
+    "            \"Z\":1.0, # metallicity in multiples of Z_sun\n",
+    "            \"Mp\": 0.8*Mj, # mass of the planet in kg\n",
+    "            \"Rp\": 1.5*Rj,  # reference radius for the planet where all wavelengths are opaque, in meters\n",
+    "            \"Rstar\": 0.9*Rsun, # radius of host star in meters    \n",
+    "           \n",
+    "            \"atm_type\" :\"clear1d\", # should be one of: clear1d, clear3d, aerosol1d, aerosol3d, eqCloud1d, eqCloud3d    \n",
+    "            \"Temp\":1600, # isothermal temperature\n",
+    "        }\n",
+    "clear1d_tspec = tspec_from_dict(atmdict)\n",
+    "plt.semilogx(atmdict[\"wlrange\"],clear1d_tspec*100)\n",
+    "plt.xlabel(\"Wavelength ($\\mu$m)\",fontsize=18)\n",
+    "plt.ylabel(\"Transit Depth (%)\",fontsize=18) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "783fe2a5-f71b-4245-8eb2-40ecd7d9187f",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Julia 1.8.5",
+   "language": "julia",
+   "name": "julia-1.8"
+  },
+  "language_info": {
+   "file_extension": ".jl",
+   "mimetype": "application/julia",
+   "name": "julia",
+   "version": "1.8.5"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
