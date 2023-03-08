@@ -51,3 +51,4 @@ chempath = 'Tables/EqChemAbund'
 gaspath = 'Tables/GasOpacity/'
 miepath = 'Tables/Mie'
 rayleighpath = 'Tables/Rayleigh'
+
