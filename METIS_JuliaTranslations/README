@@ -1,0 +1,5 @@
+METIS Translated from Python to Julia
+  - Folder "Testers" contains the modules in jupyter notebook form so that I could debug the modules as I worked on them
+  - Completed ".jl" versions are in the main folder so that Main.ipynb can grab the correct files to run functions from them
+  - Issues:
+    - Certain modules arent available in Julia, find substitutes 
