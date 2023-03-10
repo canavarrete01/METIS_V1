@@ -1,669 +1,316 @@
-{
- "cells": [
-  {
-   "cell_type": "markdown",
-   "id": "8ee8a705",
-   "metadata": {},
-   "source": [
-    "## Absopac in Julia (Draft)"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 36,
-   "id": "43f30266-3d1c-4e88-9b8e-bbd77faee2bf",
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "#all imports, double checking if they are in the julia environemnt\n",
-    "#i added in\n",
-    "using Plots\n",
-    "using Pandas\n",
-    "using PyCall\n",
-    "np = pyimport(\"numpy\")\n",
-    "#using SciPy.interpolate #import RectBivariateSpline, interp1d, RegularGridInterpolator\n",
-    "using SciPy.interpolate\n",
-    "using CSV\n",
-    "using DataFrames"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 37,
-   "id": "15984db8",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "1.496e11"
-      ]
-     },
-     "execution_count": 37,
-     "metadata": {},
-     "output_type": "execute_result"
-    }
-   ],
-   "source": [
-    "#constants, establishing variables\n",
-    "G = 6.67408*10^-11       # SI units\n",
-    "kb = 1.38064852*10^-23   # SI units\n",
-    "c = 299792458.0           # m/s\n",
-    "Mj = 1.898*10^27         # mass of jupiter in kg\n",
-    "Rj = 6.9911*10^7.0       # radius of jupiter in m\n",
-    "Rsun = 6.9551*10^8       # meters\n",
-    "\n",
-    "gmol_to_kg = 10.0^-3.0 / (6.022140857*10^23) \n",
-    "pascals_to_bars = 10^-5\n",
-    "bars_to_atm = 0.986923\n",
-    "kgcm_to_gccm = 0.001 \n",
-    "au_to_m = 1.496*10^11"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 38,
-   "id": "375ac3ec",
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "[\"H2\", \"He\", \"CH4\", \"CO\", \"N2\", \"NH3\", \"H20\", \"PH2\", \"H25\", \"TiO\", \"VO\", \"CaH\", \"MgH\", \"Li\", \"Na\", \"K\", \"Rb\", \"Cs\", \"FeH\", \"CrH\", \"H-\", \"H\", \"H+\", \"e-\", \"Fe\", \"SiO\", \"CaOH\", \"TiH\", \"Al\", \"Ca\"]\n",
-      "Dict(\"TiO\" => 9, \"FeH\" => 18, \"H+\" => 22, \"Ca\" => 29, \"CaH\" => 11, \"Li\" => 13, \"CaOH\" => 26, \"e-\" => 23, \"H-\" => 20, \"N2\" => 4, \"Cs\" => 17, \"PH2\" => 7, \"NH3\" => 5, \"H25\" => 8, \"He\" => 1, \"H\" => 21, \"Na\" => 14, \"CO\" => 3, \"H20\" => 6, \"Rb\" => 16, \"SiO\" => 25, \"MgH\" => 12, \"Al\" => 28, \"CH4\" => 2, \"Fe\" => 24, \"VO\" => 10, \"K\" => 15, \"CrH\" => 19, \"TiH\" => 27, \"H2\" => 0)\n"
-     ]
-    }
-   ],
-   "source": [
-    "fullSpeciesList = [\"H2\", \"He\", \"CH4\", \"CO\", \"N2\", \"NH3\", \"H20\",\n",
-    "                   \"PH2\", \"H25\", \"TiO\", \"VO\", \"CaH\", \"MgH\", \"Li\",\n",
-    "                   \"Na\", \"K\", \"Rb\", \"Cs\", \"FeH\", \"CrH\", \"H-\", \"H\", \n",
-    "                   \"H+\", \"e-\", \"Fe\", \"SiO\", \"CaOH\", \"TiH\", \"Al\", \"Ca\"]\n",
-    "\n",
-    "speciesDict = Dict(fullSpeciesList .=> range(0, length = length(fullSpeciesList)))\n",
-    "\n",
-    "#tests\n",
-    "println(fullSpeciesList[1:end])\n",
-    "println(speciesDict)"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 39,
-   "id": "b12e1e7f",
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "Dict(\"TiO\" => 63.866, \"FeH\" => 56.85294, \"H+\" => 1.00739142009093, \"Ca\" => 40.078, \"H2S\" => 34.1, \"CaH\" => 42.094, \"Li\" => 6.941, \"CaOH\" => 74.093, \"e-\" => 0.0005485799090699999, \"H-\" => 1.0084885799090701, \"N2\" => 28.013, \"Cs\" => 132.90545, \"NH3\" => 17.031, \"He\" => 4.002602, \"H\" => 1.00794, \"Na\" => 22.989769, \"CO\" => 28.01, \"Rb\" => 85.4678, \"SiO\" => 44.08, \"MgH\" => 25.313, \"PH3\" => 33.99758, \"Al\" => 26.981539, \"CH4\" => 16.04, \"H2O\" => 18.01528, \"Fe\" => 55.845, \"VO\" => 66.9409, \"K\" => 39.0983, \"CrH\" => 54.004, \"TiH\" => 48.874939999999995, \"H2\" => 2.01588)\n"
-     ]
-    }
-   ],
-   "source": [
-    "#molar masses in g/mol\n",
-    "molarmassdict= Dict(\"H2\"=>2.01588, \"He\"=>4.002602, \"CH4\"=>16.04, \"CO\"=>28.01, \"N2\"=>28.013, \"NH3\"=>17.031, \"H2O\"=>18.01528, \n",
-    "                \"PH3\"=> 33.99758, \"H2S\"=>34.1, \"TiO\"=>63.866, \"VO\"=>66.9409, \"CaH\"=>42.094, \"MgH\"=>25.313, \"Li\"=>6.941, \n",
-    "                \"Na\"=>22.989769, \"K\"=>39.0983, \"Rb\"=>85.4678, \"Cs\"=>132.90545, \"FeH\"=>55.845+1.00794, \"CrH\"=>54.0040, \n",
-    "                \"H-\"=>1.00794+5.48579909070*10^-4, \"H\"=>1.00794, \"H+\"=>1.00794-5.48579909070*10^-4, \"e-\"=>5.48579909070*10^-4, \n",
-    "                \"Fe\"=>55.845, \"SiO\"=>44.08, \"CaOH\"=>74.093,\"TiH\"=>47.867+1.00794, \"Al\"=>26.981539, \"Ca\"=>40.078)\n",
-    "\n",
-    "println(molarmassdict) "
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 40,
-   "id": "0ce74abc",
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "TiO:9 FeH:18 H+:22 Ca:29 CaH:11 Li:13 CaOH:26 e-:23 H-:20 N2:4 Cs:17 PH2:7 NH3:5 H25:8 He:1 H:21 Na:14 CO:3 H20:6 Rb:16 SiO:25 MgH:12 Al:28 CH4:2 Fe:24 VO:10 K:15 CrH:19 TiH:27 H2:0 "
-     ]
-    }
-   ],
-   "source": [
-    "molar_masses = np.zeros(30)\n",
-    "for (key, value)  in speciesDict   #invalid iteration spec \n",
-    "    #molar_masses[k]=molarmassdict[spec]\n",
-    "    print(key, \":\",value, \" \" )\n",
-    "end\n",
-    " \n"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 41,
-   "id": "ed5730ec",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "read_abund_file (generic function with 1 method)"
-      ]
-     },
-     "execution_count": 41,
-     "metadata": {},
-     "output_type": "execute_result"
-    }
-   ],
-   "source": [
-    "    \n",
-    "# code for interpolating adam's tables\n",
-    "function read_abund_file(filename)\n",
-    "    df = DataFrame(CSV.File(filename), header = 0)\n",
-    "    \n",
-    "    # df =  CSV.read(IOBuffer(filen), DataFrame; header=0)\n",
-    "    \n",
-    "    # dataframe = pandas.read_csv(filename,sep='\\s+',skiprows=1,header=None)\n",
-    "    # data = dataframe.values\n",
-    "    #\n",
-    "    # x,y = data.shape # array shape should be (86940, 32) #add in pyCall \n",
-    "    #if x == 86940 and y == 32\n",
-    "    #   print('success reading: %s'%filename)\n",
-    "    #  return data \n",
-    "    #else: \n",
-    "    #   print('check format of input table: %s'%filename)\n",
-    "    #  return 1\n",
-    "    #\n",
-    "end\n"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 42,
-   "id": "9df64434",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "convert_2d_to_3d_array (generic function with 1 method)"
-      ]
-     },
-     "execution_count": 42,
-     "metadata": {},
-     "output_type": "execute_result"
-    }
-   ],
-   "source": [
-    "function convert_2d_to_3d_array(data)\n",
-    "    #=\n",
-    "     returns the temperatures in K,\n",
-    "     the pressures in bars,\n",
-    "     the 3-d array of data in the following form:\n",
-    "     30 diff species, 805 diff temperatures, 108 diff pressures\n",
-    "     ***NOTE*** that the temps are descending from high to low, \n",
-    "     and the pressures are decreasing from high to low\n",
-    "     =#\n",
-    "\n",
-    "    sep = np.split(data,108,axis=0)\n",
-    "    full = np.dstack(sep)\n",
-    "    temps = 10.0^full[:,0,0]\n",
-    "    pressures = 10.0^full[0,1,:]\n",
-    "    cut = full[:,2:32,:]\n",
-    "    arrange = np.swapaxes(cut,0,1)\n",
-    "    return temps, pressures, arrange\n",
-    "end"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 43,
-   "id": "c5207238-a42e-491b-bd31-264f1008c153",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "load_abund_table (generic function with 1 method)"
-      ]
-     },
-     "execution_count": 43,
-     "metadata": {},
-     "output_type": "execute_result"
-    }
-   ],
-   "source": [
-    "function load_abund_table(filename)\n",
-    "    #=\n",
-    "    returns t in K\n",
-    "    p in atm\n",
-    "    cube with abundances of 30 species, for grid of \n",
-    "    805 temperatures, and 106 pressures       \n",
-    "    cube shape - (30,805,106)\n",
-    "    =#\n",
-    "    \n",
-    "    data = read_abund_file(filename)\n",
-    "    t,p,cube = convert_2d_to_3d_array(data)\n",
-    "    return t,p,cube\n",
-    "end\n"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 44,
-   "id": "43b1c920-9c98-404d-829a-977d776f6db0",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "initiate_mu_abund_table_interpolators (generic function with 1 method)"
-      ]
-     },
-     "execution_count": 44,
-     "metadata": {},
-     "output_type": "execute_result"
-    }
-   ],
-   "source": [
-    "function initiate_mu_abund_table_interpolators()\n",
-    "    mu_cube, abund_cube = [], []\n",
-    "    for Z in [0.1,0.316,1.0,3.16]\n",
-    "        filename = \"Tables/EqChemAbund/abundance_%.3fsolar_rainoutTiVH2OFe.dat.gz\"%Z\n",
-    "        t,p,cube = load_abund_table(filename)\n",
-    "\n",
-    "        mu_grid = np.zeros((len(t),len(p)))\n",
-    "        for k in range(30)\n",
-    "            mu_grid[:,:] = mu_grid[:,:] + molar_masses[k]*cube[k,:,:] \n",
-    "        end \n",
-    "        mu_grid = np.fliplr(mu_grid)\n",
-    "        mu_grid = np.flipud(mu_grid)\n",
-    "        mu_cube.append(mu_grid)\n",
-    "\n",
-    "        cube2 = np.swapaxes(cube.copy(),0,1)\n",
-    "        cube3 = np.swapaxes(cube2,1,2)\n",
-    "        for k in range(30)\n",
-    "            cube3[:,:,k] = np.fliplr(cube3[:,:,k])\n",
-    "            cube3[:,:,k] = np.flipud(cube3[:,:,k])\n",
-    "            end\n",
-    "        abund_cube.append(cube3)\n",
-    "    end \n",
-    "    \n",
-    "    log_Z = np.log10(np.logspace(-1,1,4))    \n",
-    "    log_t = np.log10(t)[:,:,-1] #reversed?\n",
-    "    log_p = np.log10(p)[:,:,-1] \n",
-    "    mufunc = RegularGridInterpolator((log_Z,log_t,log_p),np.array(mu_cube), method=\"linear\")\n",
-    "    afunc = RegularGridInterpolator((log_Z,log_t,log_p),np.array(abund_cube), method=\"linear\")\n",
-    "\n",
-    "\n",
-    "    return mufunc, afunc\n",
-    "end "
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 45,
-   "id": "fa45ac06-1570-496c-85eb-23c076a54036",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "initiate_opac_table_interpolator (generic function with 1 method)"
-      ]
-     },
-     "execution_count": 45,
-     "metadata": {},
-     "output_type": "execute_result"
-    }
-   ],
-   "source": [
-    "function initiate_opac_table_interpolator()\n",
-    "\n",
-    "    ln_densities = np.array([ \n",
-    "       -27.63000000000000,        -27.16000000000000,        -26.69000000000000,      \n",
-    "       -26.22000000000000,        -25.75000000000000,        -25.28000000000000,      \n",
-    "       -24.81000000000000,        -24.34000000000000,        -23.87000000000000,      \n",
-    "       -23.40000000000000,        -22.93000000000000,        -22.46000000000000,      \n",
-    "       -21.99000000000000,        -21.52000000000000,        -21.05000000000000,      \n",
-    "       -20.58000000000000,        -20.11000000000000,        -19.64000000000000,      \n",
-    "       -19.17000000000000,        -18.70000000000000,        -18.23000000000000,      \n",
-    "       -17.76000000000000,        -17.29000000000000,        -16.82000000000000,      \n",
-    "       -16.35000000000000,        -15.88000000000000,        -15.41000000000000,      \n",
-    "       -14.94000000000000,        -14.47000000000000,        -14.00000000000000,      \n",
-    "       -13.53000000000000,        -13.06000000000000,        -12.59000000000000,      \n",
-    "       -12.12000000000000,        -11.65000000000000,        -11.18000000000000,      \n",
-    "       -10.71000000000000,        -10.24000000000000,        -9.773999999999999,      \n",
-    "       -9.304000000000000,        -8.834000000000000,        -8.364000000000001,      \n",
-    "       -7.895000000000000,        -7.425000000000000,        -6.955000000000000,      \n",
-    "       -6.485000000000000,        -6.015000000000000,        -5.545000000000000,      \n",
-    "       -5.075000000000000,        -4.605000000000000])  \n",
-    "\n",
-    "    ln_temperatures = np.array([\n",
-    "        3.912000000000000,         4.006000000000000,         4.100000000000000,      \n",
-    "        4.194000000000000,         4.288000000000000,         4.382000000000000,      \n",
-    "        4.476000000000000,         4.570000000000000,         4.664000000000000,      \n",
-    "        4.758000000000000,         4.852000000000000,         4.946000000000000,      \n",
-    "        5.040000000000000,         5.134000000000000,         5.228000000000000,      \n",
-    "        5.322000000000000,         5.416000000000000,         5.510000000000000,     \n",
-    "        5.604000000000000,         5.698000000000000,         5.792000000000000,      \n",
-    "        5.886000000000000,         5.980000000000000,         6.074000000000000,      \n",
-    "        6.168000000000000,         6.262000000000000,         6.356000000000000,      \n",
-    "        6.450000000000000,         6.544000000000000,         6.638000000000000,      \n",
-    "        6.732000000000000,         6.825000000000000,         6.919000000000000,      \n",
-    "        7.013000000000000,         7.107000000000000,         7.201000000000000,      \n",
-    "        7.295000000000000,         7.389000000000000,         7.483000000000000,      \n",
-    "        7.577000000000000,         7.671000000000000,         7.765000000000000,      \n",
-    "        7.859000000000000,         7.953000000000000,         8.047000000000001,      \n",
-    "        8.141000000000000,         8.234999999999999,         8.329000000000001,      \n",
-    "        8.423000000000000,         8.516999999999999])\n",
-    "\n",
-    "\n",
-    "    cspeed = 2.99792458E10 # cm/s\n",
-    "    f0 = 999308193333.3333  # freq 1 in Hz\n",
-    "    ff = 999308193333334.0  # last freq in Hz\n",
-    "\n",
-    "    ln_freq = np.linspace(np.log(f0),np.log(ff),5000) # lower freq =  longer wl higher freq=shorter wl\n",
-    "    freq = np.exp(ln_freq)\n",
-    "    wl = 1.0E4*cspeed/freq  # this is in microns, freq is in 1/s\n",
-    "    \n",
-    "    log10_Z = np.log10(np.logspace(-1,1,4)) #np.log10(np.array([0.1,0.316,1.0,3.16]))\n",
-    "    \n",
-    "    values = []\n",
-    "    for Z in [0.1,0.316,1.0,3.16]\n",
-    "        fname = \"Tables/GasOpacity/absopac.noTiOVO.%.3fsolar.dat\"%Z\n",
-    "        dataframe = pandas.read_csv(fname ) \n",
-    "        print(\"success reading %s\"%fname)\n",
-    "        data = dataframe.values\n",
-    "        values.append(data.reshape((5000,50,50)))\n",
-    "    end \n",
-    "        \n",
-    "    opac_func = RegularGridInterpolator((log10_Z, ln_freq,ln_densities,ln_temperatures), np.array(values), method=\"linear\", bounds_error=False, fill_value=-10.0)\n",
-    "\n",
-    "    return opac_func # (log10_Z, ln_freq, ln_densities, ln_temperatures)\n",
-    "end "
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 46,
-   "id": "0eeb73eb-2175-4d60-8884-8c5687a3eb4c",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "initiate_rayleigh_table_interpolator (generic function with 1 method)"
-      ]
-     },
-     "execution_count": 46,
-     "metadata": {},
-     "output_type": "execute_result"
-    }
-   ],
-   "source": [
-    "function initiate_rayleigh_table_interpolator()\n",
-    "    # note that these are both ln of the value, so things are evenly space in log for interpolations\n",
-    "    # temperature ranges up to ~ 5000 K\n",
-    "    # densities i'm not sure of units... presumably g per cubic centimeter...\n",
-    "    ln_densities = np.array([ \n",
-    "       -27.63000000000000,        -27.16000000000000,        -26.69000000000000,      \n",
-    "       -26.22000000000000,        -25.75000000000000,        -25.28000000000000,      \n",
-    "       -24.81000000000000,        -24.34000000000000,        -23.87000000000000,      \n",
-    "       -23.40000000000000,        -22.93000000000000,        -22.46000000000000,      \n",
-    "       -21.99000000000000,        -21.52000000000000,        -21.05000000000000,      \n",
-    "       -20.58000000000000,        -20.11000000000000,        -19.64000000000000,      \n",
-    "       -19.17000000000000,        -18.70000000000000,        -18.23000000000000,      \n",
-    "       -17.76000000000000,        -17.29000000000000,        -16.82000000000000,      \n",
-    "       -16.35000000000000,        -15.88000000000000,        -15.41000000000000,      \n",
-    "       -14.94000000000000,        -14.47000000000000,        -14.00000000000000,      \n",
-    "       -13.53000000000000,        -13.06000000000000,        -12.59000000000000,      \n",
-    "       -12.12000000000000,        -11.65000000000000,        -11.18000000000000,      \n",
-    "       -10.71000000000000,        -10.24000000000000,        -9.773999999999999,      \n",
-    "       -9.304000000000000,        -8.834000000000000,        -8.364000000000001,      \n",
-    "       -7.895000000000000,        -7.425000000000000,        -6.955000000000000,      \n",
-    "       -6.485000000000000,        -6.015000000000000,        -5.545000000000000,      \n",
-    "       -5.075000000000000,        -4.605000000000000])  \n",
-    "\n",
-    "    ln_temperatures = np.array([\n",
-    "        3.912000000000000,         4.006000000000000,         4.100000000000000,      \n",
-    "        4.194000000000000,         4.288000000000000,         4.382000000000000,      \n",
-    "        4.476000000000000,         4.570000000000000,         4.664000000000000,      \n",
-    "        4.758000000000000,         4.852000000000000,         4.946000000000000,      \n",
-    "        5.040000000000000,         5.134000000000000,         5.228000000000000,      \n",
-    "        5.322000000000000,         5.416000000000000,         5.510000000000000,     \n",
-    "        5.604000000000000,         5.698000000000000,         5.792000000000000,      \n",
-    "        5.886000000000000,         5.980000000000000,         6.074000000000000,      \n",
-    "        6.168000000000000,         6.262000000000000,         6.356000000000000,      \n",
-    "        6.450000000000000,         6.544000000000000,         6.638000000000000,      \n",
-    "        6.732000000000000,         6.825000000000000,         6.919000000000000,      \n",
-    "        7.013000000000000,         7.107000000000000,         7.201000000000000,      \n",
-    "        7.295000000000000,         7.389000000000000,         7.483000000000000,      \n",
-    "        7.577000000000000,         7.671000000000000,         7.765000000000000,      \n",
-    "        7.859000000000000,         7.953000000000000,         8.047000000000001,      \n",
-    "        8.141000000000000,         8.234999999999999,         8.329000000000001,      \n",
-    "        8.423000000000000,         8.516999999999999])\n",
-    "\n",
-    "    log10_Z = np.log10(np.logspace(-1,1,4)) #np.log10(np.array([0.1,0.316,1.0,3.16]))\n",
-    "    \n",
-    "    values = []\n",
-    "    for Z in [0.1,0.316,1.0,3.16]\n",
-    "        fname = \"Tables/Rayleigh/rayleigh.%.3fsolar.dat.gz\"%Z\n",
-    "        dataframe = pandas.read_csv(fname) \n",
-    "        print(\"success reading %s\"%fname)\n",
-    "        values.append(dataframe.values)\n",
-    "    end \n",
-    "        \n",
-    "    rayleigh_table = RegularGridInterpolator((log10_Z,ln_densities,ln_temperatures), np.array(values), method=\"linear\", bounds_error=False, fill_value=-10.0)\n",
-    "    return rayleigh_table\n",
-    "end "
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 47,
-   "id": "31e95372-0d48-4dcd-bd9d-f798fbfd0054",
-   "metadata": {},
-   "outputs": [
-    {
-     "ename": "LoadError",
-     "evalue": "MethodError: no method matching rem(::String, ::Float64)\n\u001b[0mClosest candidates are:\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:ToZero}\u001b[39m) at div.jl:83\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Down}\u001b[39m) at div.jl:84\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Up}\u001b[39m) at div.jl:85\n\u001b[0m  ...",
-     "output_type": "error",
-     "traceback": [
-      "MethodError: no method matching rem(::String, ::Float64)\n\u001b[0mClosest candidates are:\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:ToZero}\u001b[39m) at div.jl:83\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Down}\u001b[39m) at div.jl:84\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Up}\u001b[39m) at div.jl:85\n\u001b[0m  ...",
-      "",
-      "Stacktrace:",
-      " [1] initiate_mu_abund_table_interpolators()",
-      "   @ Main ./In[44]:4",
-      " [2] top-level scope",
-      "   @ In[47]:1"
-     ]
-    }
-   ],
-   "source": [
-    "mu_table, abund_table = initiate_mu_abund_table_interpolators() # interpolates grids in (log10Z, log10_t, log10_p)    \n",
-    "function abund_func(Z,T,P)\n",
-    "    # T - temperature in kelvin\n",
-    "    # P - pressure in pascals\n",
-    "    # returns 30 x nTP grid of molar mixing raitos\n",
-    "    # species are in order:\n",
-    "    #  H2, He, CH4, CO, N2, NH3, H2O, PH3, H2S, TiO, VO, CaH, MgH, Li, \n",
-    "    #  Na, K, Rb, Cs, FeH, CrH, H-, H, H+, e-, Fe, SiO, CaOH,TiH, Al, Ca\n",
-    "    # and their indices can be easily obtained from the speciesdict\n",
-    "    # defined in absopac.py\n",
-    "    log10_p = np.log10(np.abs(P*pascals_to_bars*bars_to_atm))\n",
-    "    log10_t = np.log10(T)\n",
-    "    log10_p = np.log10(np.abs(P*pascals_to_bars*bars_to_atm))\n",
-    "    log10_t = np.log10(np.abs(T))\n",
-    "    pmin = 8e-9\n",
-    "    mask = np.where(log10_p < np.log10(pmin))\n",
-    "    log10_p[mask] = np.log10(pmin)\n",
-    "    pmax = 400\n",
-    "    mask2 = np.where(log10_p > np.log10(pmax))\n",
-    "    log10_p[mask2] = np.log10(pmax)\n",
-    "    tmin = 50\n",
-    "    mask3 = np.where(log10_t < np.log10(tmin))\n",
-    "    log10_t[mask3] = np.log10(tmin)\n",
-    "    tmax = 5000\n",
-    "    mask4 = np.where(log10_t > np.log10(tmax))\n",
-    "    log10_t[mask4] = np.log10(tmax) \n",
-    "    log10_Z = np.log10(Z)+np.zeros(len(log10_t))\n",
-    "    return  abund_table((log10_Z,log10_t,log10_p)) # molar mixing ratio    \n",
-    "end"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 48,
-   "id": "12d55e37-ff3b-4a7d-913b-de886f8e5d20",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "mu_func (generic function with 1 method)"
-      ]
-     },
-     "execution_count": 48,
-     "metadata": {},
-     "output_type": "execute_result"
-    }
-   ],
-   "source": [
-    "function mu_func(Z,T,P)\n",
-    "    # T - temperature in kelvin\n",
-    "    # P - pressure in pascals\n",
-    "    # returns the mean molecular weight of the atmosphere (gas only... ignores particulates)\n",
-    "    log10_p = np.log10(np.abs(P*pascals_to_bars*bars_to_atm))\n",
-    "    log10_t = np.log10(np.abs(T))\n",
-    "    pmin = 8e-9\n",
-    "    mask = np.where(log10_p < np.log10(pmin))\n",
-    "    log10_p[mask] = np.log10(pmin)\n",
-    "    pmax = 400\n",
-    "    mask2 = np.where(log10_p > np.log10(pmax))\n",
-    "    log10_p[mask2] = np.log10(pmax)\n",
-    "    tmin = 50\n",
-    "    mask3 = np.where(log10_t < np.log10(tmin))\n",
-    "    log10_t[mask3] = np.log10(tmin)\n",
-    "    tmax = 5000\n",
-    "    mask4 = np.where(log10_t > np.log10(tmax))\n",
-    "    log10_t[mask4] = np.log10(tmax)   \n",
-    "    log10_Z = np.log10(Z)+np.zeros(len(log10_t))\n",
-    "    return mu_table((log10_Z,log10_t,log10_p))\n",
-    "end "
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 49,
-   "id": "285a765e-c640-40de-a6dd-dfd232609004",
-   "metadata": {},
-   "outputs": [
-    {
-     "ename": "LoadError",
-     "evalue": "MethodError: no method matching rem(::String, ::Float64)\n\u001b[0mClosest candidates are:\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:ToZero}\u001b[39m) at div.jl:83\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Down}\u001b[39m) at div.jl:84\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Up}\u001b[39m) at div.jl:85\n\u001b[0m  ...",
-     "output_type": "error",
-     "traceback": [
-      "MethodError: no method matching rem(::String, ::Float64)\n\u001b[0mClosest candidates are:\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:ToZero}\u001b[39m) at div.jl:83\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Down}\u001b[39m) at div.jl:84\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Up}\u001b[39m) at div.jl:85\n\u001b[0m  ...",
-      "",
-      "Stacktrace:",
-      " [1] initiate_opac_table_interpolator()",
-      "   @ Main ./In[45]:54",
-      " [2] top-level scope",
-      "   @ In[49]:3"
-     ]
-    }
-   ],
-   "source": [
-    "\n",
-    "# GAS PHASE OPACITY + RAYLEIGH SCATTERING\n",
-    "gasopac_table = initiate_opac_table_interpolator() # interpolates grid in (log10Z, ln_freq, ln_rho, ln_T)\n",
-    "function gasopac_func(Z,wl,T,rho):\n",
-    "    # Z is the metallicity in multiples of solar metallicity\n",
-    "    # wl -  wavelength in microns\n",
-    "    # T - temperature in kelvin\n",
-    "    # rho -  density in kg/m^3\n",
-    "    # returns the gas opacity\n",
-    "    # in units of cm^2/gram\n",
-    "    log10Z = np.log10(Z)\n",
-    "    ln_rho_T = np.vstack((np.log(np.abs(rho*kgcm_to_gccm)),np.log(T))) # now have (2,50) \n",
-    "                                                                       # [0] are the densities \n",
-    "                                                                       # [1] are the temperatures  \n",
-    "\n",
-    "    ln_freq = np.log(c*10.0**6.0/wl)        \n",
-    "    nwl = len(wl)\n",
-    "    nt = len(T)\n",
-    "    ln_rho_T_repeated = np.tile(ln_rho_T,nwl) # repeat T-rho pairs nwl times, \n",
-    "                                              # first ntp go through all pairs then sequence repeats\n",
-    "    ln_freq_repeated = np.repeat(ln_freq,nt)  # repeat frequencies ntp times, \n",
-    "                                              # first ntp are fr1 1, next ntp are fr 2 etc.\n",
-    "    tuples = np.zeros((nwl*nt,4))  \n",
-    "    tuples[:,0] = log10Z\n",
-    "    tuples[:,1] = ln_freq_repeated[:] \n",
-    "    tuples[:,2] = ln_rho_T_repeated[0] \n",
-    "    tuples[:,3] = ln_rho_T_repeated[1]\n",
-    "    results = gasopac_table(tuples) \n",
-    "    return (np.exp(results.reshape(nwl,nt))*10**-1*rho).T # has shape (nT, nwl), units are cm^2/gram   \n",
-    "end "
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 50,
-   "id": "8dad2613-6aef-4feb-aef9-cba32f99235b",
-   "metadata": {},
-   "outputs": [
-    {
-     "ename": "LoadError",
-     "evalue": "MethodError: no method matching rem(::String, ::Float64)\n\u001b[0mClosest candidates are:\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:ToZero}\u001b[39m) at div.jl:83\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Down}\u001b[39m) at div.jl:84\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Up}\u001b[39m) at div.jl:85\n\u001b[0m  ...",
-     "output_type": "error",
-     "traceback": [
-      "MethodError: no method matching rem(::String, ::Float64)\n\u001b[0mClosest candidates are:\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:ToZero}\u001b[39m) at div.jl:83\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Down}\u001b[39m) at div.jl:84\n\u001b[0m  rem(::Any, ::Any, \u001b[91m::RoundingMode{:Up}\u001b[39m) at div.jl:85\n\u001b[0m  ...",
-      "",
-      "Stacktrace:",
-      " [1] initiate_rayleigh_table_interpolator()",
-      "   @ Main ./In[46]:47",
-      " [2] top-level scope",
-      "   @ In[50]:1"
-     ]
-    }
-   ],
-   "source": [
-    "rayleigh_table = initiate_rayleigh_table_interpolator()\n",
-    "function rayleigh_func(Z,wl,T,rho)\n",
-    "    nwl = len(wl)\n",
-    "    nt = len(T)\n",
-    "    wl0 = 1.0E6*c/5.0872638E14 # in microns\n",
-    "    ln_rho = np.log(np.abs(rho*kgcm_to_gccm))\n",
-    "    ln_T = np.log(T)\n",
-    "    log10Z = np.zeros(nt)+np.log10(Z)\n",
-    "    sig0 = rayleigh_table((log10Z,ln_rho,ln_T))\n",
-    "    wlscaling = (wl/wl0)**-4\n",
-    "    rayleigh = np.repeat(wlscaling,nt).reshape(nwl,nt)*np.exp(sig0) # has shape (nT, nwl), units are cm^2/g\n",
-    "    return ((rho*10.0**-1)*rayleigh).T  # has shape (nT, nwl), units are 1/m\n",
-    "end"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "4b47bc1e-5390-4c21-83e2-c4976bdd501c",
-   "metadata": {},
-   "outputs": [],
-   "source": []
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Julia 1.8.5",
-   "language": "julia",
-   "name": "julia-1.8"
-  },
-  "language_info": {
-   "file_extension": ".jl",
-   "mimetype": "application/julia",
-   "name": "julia",
-   "version": "1.8.5"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+# ----------------------------------------------------------------------------------------------
+using Plots
+using Pandas
+using PyCall
+np = pyimport("numpy")
+using SciPy.interpolate #using SciPy.interpolate #import RectBivariateSpline, interp1d, RegularGridInterpolator
+using CSV
+using DataFrames
+#---------------
+include("Constants.jl")
+# ----------------------------------------------------------------------------------------------
+    
+# code for interpolating adam's tables
+function read_abund_file(filename)
+    df = DataFrame(CSV.File(filename), header = 0)
+    
+    # df =  CSV.read(IOBuffer(filen), DataFrame; header=0)
+    
+    # dataframe = pandas.read_csv(filename,sep='\s+',skiprows=1,header=None)
+    # data = dataframe.values
+    #
+    # x,y = data.shape # array shape should be (86940, 32) #add in pyCall 
+    #if x == 86940 and y == 32
+    #   print('success reading: %s'%filename)
+    #  return data 
+    #else: 
+    #   print('check format of input table: %s'%filename)
+    #  return 1
+    #
+end
+
+
+function convert_2d_to_3d_array(data)
+    #=
+     returns the temperatures in K,
+     the pressures in bars,
+     the 3-d array of data in the following form:
+     30 diff species, 805 diff temperatures, 108 diff pressures
+     ***NOTE*** that the temps are descending from high to low, 
+     and the pressures are decreasing from high to low
+     =#
+
+    sep = np.split(data,108,axis=0)
+    full = np.dstack(sep)
+    temps = 10.0^full[:,0,0]
+    pressures = 10.0^full[0,1,:]
+    cut = full[:,2:32,:]
+    arrange = np.swapaxes(cut,0,1)
+    return temps, pressures, arrange
+end
+
+function load_abund_table(filename)
+    #=
+    returns t in K
+    p in atm
+    cube with abundances of 30 species, for grid of 
+    805 temperatures, and 106 pressures       
+    cube shape - (30,805,106)
+    =#
+    
+    data = read_abund_file(filename)
+    t,p,cube = convert_2d_to_3d_array(data)
+    return t,p,cube
+end
+
+function initiate_mu_abund_table_interpolators()
+    mu_cube, abund_cube = [], []
+    for Z in [0.1,0.316,1.0,3.16]
+        filename = "Tables/EqChemAbund/abundance_%.3fsolar_rainoutTiVH2OFe.dat.gz"%Z
+        t,p,cube = load_abund_table(filename)
+
+        mu_grid = np.zeros((len(t),len(p)))
+        for k in range(30)
+            mu_grid[:,:] = mu_grid[:,:] + molar_masses[k]*cube[k,:,:] 
+        end 
+        mu_grid = np.fliplr(mu_grid)
+        mu_grid = np.flipud(mu_grid)
+        mu_cube.append(mu_grid)
+
+        cube2 = np.swapaxes(cube.copy(),0,1)
+        cube3 = np.swapaxes(cube2,1,2)
+        for k in range(30)
+            cube3[:,:,k] = np.fliplr(cube3[:,:,k])
+            cube3[:,:,k] = np.flipud(cube3[:,:,k])
+            end
+        abund_cube.append(cube3)
+    end 
+    
+    log_Z = np.log10(np.logspace(-1,1,4))    
+    log_t = np.log10(t)[:,:,-1] #reversed?
+    log_p = np.log10(p)[:,:,-1] 
+    mufunc = RegularGridInterpolator((log_Z,log_t,log_p),np.array(mu_cube), method="linear")
+    afunc = RegularGridInterpolator((log_Z,log_t,log_p),np.array(abund_cube), method="linear")
+
+
+    return mufunc, afunc
+end 
+
+function initiate_opac_table_interpolator()
+
+    ln_densities = np.array([ 
+       -27.63000000000000,        -27.16000000000000,        -26.69000000000000,      
+       -26.22000000000000,        -25.75000000000000,        -25.28000000000000,      
+       -24.81000000000000,        -24.34000000000000,        -23.87000000000000,      
+       -23.40000000000000,        -22.93000000000000,        -22.46000000000000,      
+       -21.99000000000000,        -21.52000000000000,        -21.05000000000000,      
+       -20.58000000000000,        -20.11000000000000,        -19.64000000000000,      
+       -19.17000000000000,        -18.70000000000000,        -18.23000000000000,      
+       -17.76000000000000,        -17.29000000000000,        -16.82000000000000,      
+       -16.35000000000000,        -15.88000000000000,        -15.41000000000000,      
+       -14.94000000000000,        -14.47000000000000,        -14.00000000000000,      
+       -13.53000000000000,        -13.06000000000000,        -12.59000000000000,      
+       -12.12000000000000,        -11.65000000000000,        -11.18000000000000,      
+       -10.71000000000000,        -10.24000000000000,        -9.773999999999999,      
+       -9.304000000000000,        -8.834000000000000,        -8.364000000000001,      
+       -7.895000000000000,        -7.425000000000000,        -6.955000000000000,      
+       -6.485000000000000,        -6.015000000000000,        -5.545000000000000,      
+       -5.075000000000000,        -4.605000000000000])  
+
+    ln_temperatures = np.array([
+        3.912000000000000,         4.006000000000000,         4.100000000000000,      
+        4.194000000000000,         4.288000000000000,         4.382000000000000,      
+        4.476000000000000,         4.570000000000000,         4.664000000000000,      
+        4.758000000000000,         4.852000000000000,         4.946000000000000,      
+        5.040000000000000,         5.134000000000000,         5.228000000000000,      
+        5.322000000000000,         5.416000000000000,         5.510000000000000,     
+        5.604000000000000,         5.698000000000000,         5.792000000000000,      
+        5.886000000000000,         5.980000000000000,         6.074000000000000,      
+        6.168000000000000,         6.262000000000000,         6.356000000000000,      
+        6.450000000000000,         6.544000000000000,         6.638000000000000,      
+        6.732000000000000,         6.825000000000000,         6.919000000000000,      
+        7.013000000000000,         7.107000000000000,         7.201000000000000,      
+        7.295000000000000,         7.389000000000000,         7.483000000000000,      
+        7.577000000000000,         7.671000000000000,         7.765000000000000,      
+        7.859000000000000,         7.953000000000000,         8.047000000000001,      
+        8.141000000000000,         8.234999999999999,         8.329000000000001,      
+        8.423000000000000,         8.516999999999999])
+
+
+    cspeed = 2.99792458E10 # cm/s
+    f0 = 999308193333.3333  # freq 1 in Hz
+    ff = 999308193333334.0  # last freq in Hz
+
+    ln_freq = np.linspace(np.log(f0),np.log(ff),5000) # lower freq =  longer wl higher freq=shorter wl
+    freq = np.exp(ln_freq)
+    wl = 1.0E4*cspeed/freq  # this is in microns, freq is in 1/s
+    
+    log10_Z = np.log10(np.logspace(-1,1,4)) #np.log10(np.array([0.1,0.316,1.0,3.16]))
+    
+    values = []
+    for Z in [0.1,0.316,1.0,3.16]
+        fname = "Tables/GasOpacity/absopac.noTiOVO.%.3fsolar.dat"%Z
+        dataframe = pandas.read_csv(fname ) 
+        print("success reading %s"%fname)
+        data = dataframe.values
+        values.append(data.reshape((5000,50,50)))
+    end 
+        
+    opac_func = RegularGridInterpolator((log10_Z, ln_freq,ln_densities,ln_temperatures), np.array(values), method="linear", bounds_error=False, fill_value=-10.0)
+
+    return opac_func # (log10_Z, ln_freq, ln_densities, ln_temperatures)
+end 
+
+function initiate_rayleigh_table_interpolator()
+    # note that these are both ln of the value, so things are evenly space in log for interpolations
+    # temperature ranges up to ~ 5000 K
+    # densities i'm not sure of units... presumably g per cubic centimeter...
+    ln_densities = np.array([ 
+       -27.63000000000000,        -27.16000000000000,        -26.69000000000000,      
+       -26.22000000000000,        -25.75000000000000,        -25.28000000000000,      
+       -24.81000000000000,        -24.34000000000000,        -23.87000000000000,      
+       -23.40000000000000,        -22.93000000000000,        -22.46000000000000,      
+       -21.99000000000000,        -21.52000000000000,        -21.05000000000000,      
+       -20.58000000000000,        -20.11000000000000,        -19.64000000000000,      
+       -19.17000000000000,        -18.70000000000000,        -18.23000000000000,      
+       -17.76000000000000,        -17.29000000000000,        -16.82000000000000,      
+       -16.35000000000000,        -15.88000000000000,        -15.41000000000000,      
+       -14.94000000000000,        -14.47000000000000,        -14.00000000000000,      
+       -13.53000000000000,        -13.06000000000000,        -12.59000000000000,      
+       -12.12000000000000,        -11.65000000000000,        -11.18000000000000,      
+       -10.71000000000000,        -10.24000000000000,        -9.773999999999999,      
+       -9.304000000000000,        -8.834000000000000,        -8.364000000000001,      
+       -7.895000000000000,        -7.425000000000000,        -6.955000000000000,      
+       -6.485000000000000,        -6.015000000000000,        -5.545000000000000,      
+       -5.075000000000000,        -4.605000000000000])  
+
+    ln_temperatures = np.array([
+        3.912000000000000,         4.006000000000000,         4.100000000000000,      
+        4.194000000000000,         4.288000000000000,         4.382000000000000,      
+        4.476000000000000,         4.570000000000000,         4.664000000000000,      
+        4.758000000000000,         4.852000000000000,         4.946000000000000,      
+        5.040000000000000,         5.134000000000000,         5.228000000000000,      
+        5.322000000000000,         5.416000000000000,         5.510000000000000,     
+        5.604000000000000,         5.698000000000000,         5.792000000000000,      
+        5.886000000000000,         5.980000000000000,         6.074000000000000,      
+        6.168000000000000,         6.262000000000000,         6.356000000000000,      
+        6.450000000000000,         6.544000000000000,         6.638000000000000,      
+        6.732000000000000,         6.825000000000000,         6.919000000000000,      
+        7.013000000000000,         7.107000000000000,         7.201000000000000,      
+        7.295000000000000,         7.389000000000000,         7.483000000000000,      
+        7.577000000000000,         7.671000000000000,         7.765000000000000,      
+        7.859000000000000,         7.953000000000000,         8.047000000000001,      
+        8.141000000000000,         8.234999999999999,         8.329000000000001,      
+        8.423000000000000,         8.516999999999999])
+
+    log10_Z = np.log10(np.logspace(-1,1,4)) #np.log10(np.array([0.1,0.316,1.0,3.16]))
+    
+    values = []
+    for Z in [0.1,0.316,1.0,3.16]
+        fname = "Tables/Rayleigh/rayleigh.%.3fsolar.dat.gz"%Z
+        dataframe = pandas.read_csv(fname) 
+        print("success reading %s"%fname)
+        values.append(dataframe.values)
+    end 
+        
+    rayleigh_table = RegularGridInterpolator((log10_Z,ln_densities,ln_temperatures), np.array(values), method="linear", bounds_error=False, fill_value=-10.0)
+    return rayleigh_table
+end 
+
+#ERROR ---------------------------------
+#mu_table, abund_table = initiate_mu_abund_table_interpolators() # interpolates grids in (log10Z, log10_t, log10_p)  
+#gasopac_table = initiate_opac_table_interpolator() # interpolates grid in (log10Z, ln_freq, ln_rho, ln_T)
+#rayleigh_table = initiate_rayleigh_table_interpolator()
+#--------
+
+function abund_func(Z,T,P)
+    # T - temperature in kelvin
+    # P - pressure in pascals
+    # returns 30 x nTP grid of molar mixing raitos
+    # species are in order:
+    #  H2, He, CH4, CO, N2, NH3, H2O, PH3, H2S, TiO, VO, CaH, MgH, Li, 
+    #  Na, K, Rb, Cs, FeH, CrH, H-, H, H+, e-, Fe, SiO, CaOH,TiH, Al, Ca
+    # and their indices can be easily obtained from the speciesdict
+    # defined in absopac.py
+    log10_p = np.log10(abs.(P*pascals_to_bars*bars_to_atm))
+    log10_t = np.log10(T)
+    log10_p = np.log10(abs.(P*pascals_to_bars*bars_to_atm))
+    log10_t = np.log10(abs.(T))
+    pmin = 8e-9
+    mask = np.where(log10_p < np.log10(pmin))
+    log10_p[mask] = np.log10(pmin)
+    pmax = 400
+    mask2 = np.where(log10_p > np.log10(pmax))
+    log10_p[mask2] = np.log10(pmax)
+    tmin = 50
+    mask3 = np.where(log10_t < np.log10(tmin))
+    log10_t[mask3] = np.log10(tmin)
+    tmax = 5000
+    mask4 = np.where(log10_t > np.log10(tmax))
+    log10_t[mask4] = np.log10(tmax) 
+    log10_Z = np.log10(Z)+np.zeros(len(log10_t))
+    return  abund_table((log10_Z,log10_t,log10_p)) # molar mixing ratio    
+end
+
+function mu_func(Z,T,P)
+    # T - temperature in kelvin
+    # P - pressure in pascals
+    # returns the mean molecular weight of the atmosphere (gas only... ignores particulates)
+    log10_p = np.log10(abs.(P*pascals_to_bars*bars_to_atm))
+    log10_t = np.log10(abs.(T))
+    pmin = 8e-9
+    mask = np.where(log10_p < np.log10(pmin))
+    log10_p[mask] = np.log10(pmin)
+    pmax = 400
+    mask2 = np.where(log10_p > np.log10(pmax))
+    log10_p[mask2] = np.log10(pmax)
+    tmin = 50
+    mask3 = np.where(log10_t < np.log10(tmin))
+    log10_t[mask3] = np.log10(tmin)
+    tmax = 5000
+    mask4 = np.where(log10_t > np.log10(tmax))
+    log10_t[mask4] = np.log10(tmax)   
+    log10_Z = np.log10(Z)+np.zeros(len(log10_t))
+    return mu_table((log10_Z,log10_t,log10_p))
+end 
+
+function gasopac_func(Z,wl,T,rho)
+    # Z is the metallicity in multiples of solar metallicity
+    # wl -  wavelength in microns
+    # T - temperature in kelvin
+    # rho -  density in kg/m^3
+    # returns the gas opacity
+    # in units of cm^2/gram
+    log10Z = np.log10(Z)
+    ln_rho_T = np.vstack((np.log(abs.(rho*kgcm_to_gccm)),np.log(T))) # now have (2,50) 
+                                                                       # [0] are the densities 
+                                                                       # [1] are the temperatures  
+
+    ln_freq = np.log(c*10.0^6.0/wl)        
+    nwl = len(wl)
+    nt = len(T)
+    ln_rho_T_repeated = np.tile(ln_rho_T,nwl) # repeat T-rho pairs nwl times, 
+                                              # first ntp go through all pairs then sequence repeats
+    ln_freq_repeated = np.repeat(ln_freq,nt)  # repeat frequencies ntp times, 
+                                              # first ntp are fr1 1, next ntp are fr 2 etc.
+    tupleås = np.zeros((nwl*nt,4))  
+    tuples[:,0] = log10Z
+    tuples[:,1] = ln_freq_repeated[:] 
+    tuples[:,2] = ln_rho_T_repeated[0] 
+    tuples[:,3] = ln_rho_T_repeated[1]
+    results = gasopac_table(tuples) 
+    return (np.exp(results.reshape(nwl,nt))*10^-1*rho).T # has shape (nT, nwl), units are cm^2/gram   
+end 
+
+function rayleigh_func(Z,wl,T,rho)
+    nwl = len(wl)
+    nt = len(T)
+    wl0 = 1.0E6*c/5.0872638E14 # in microns
+    ln_rho = np.log(abs.(rho*kgcm_to_gccm))
+    ln_T = np.log(T)
+    log10Z = np.zeros(nt)+np.log10(Z)
+    sig0 = rayleigh_table((log10Z,ln_rho,ln_T))
+    wlscaling = (wl/wl0)^-4
+    rayleigh = np.repeat(wlscaling,nt).reshape(nwl,nt)*np.exp(sig0) # has shape (nT, nwl), units are cm^2/g
+    return ((rho*10.0^-1)*rayleigh).T  # has shape (nT, nwl), units are 1/m
+end
