@@ -43,8 +43,10 @@ molarmassdict= Dict( "H2"=>2.01588, "He"=>4.002602, "CH4"=>16.04, "CO"=>28.01,
                 "Al"=>26.981539, "Ca"=>40.078)
 
 molar_masses = np.zeros(30)
-[(x,y) for x in fullspecieslist for y in molarmassdict[x]]
- 
+for (spec,k) in Dict(zip(fullspecieslist,range(1,30)))
+    molar_masses[k]=molarmassdict[spec]
+end 
+
 
 # ----------------------------------------------------------------------------------------------
 # directories where pre-computed quantities are stored :
