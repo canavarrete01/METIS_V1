@@ -1,9 +1,7 @@
 #Packages -------------------------------------------------------------
 using Plots
 using Pandas
-using PyCall
-np = pyimport("numpy")
-using SciPy
+uusing SciPy
 using CSV
 using DataFrames
 
@@ -13,7 +11,6 @@ include("Constants.jl")
 
 
 # ----------------------------------------------------------------------------------------------
-# other useful functions
 # ----------------------------------------------------------------------------------------------
 function eos_idealgas(P,mu,T)
     """
@@ -58,6 +55,7 @@ function atm_setup_1d(Temp,Mp,R0,P0,nwl,nalt,nlong,nlat,mu_func,Z)
     # as a meshgrid
     
     # make up a meshgrid with appropriate extent
+   
     long_range = np.linspace(0.0,2.0*np.pi,nlong)
     lat_range = np.linspace(0.0,np.pi,nlat)
     mu = 2.36 # just using this for a first guess at appropriate extent
@@ -65,20 +63,22 @@ function atm_setup_1d(Temp,Mp,R0,P0,nwl,nalt,nlong,nlat,mu_func,Z)
     Hday = kb*Temp/(mu*gmol_to_kg*geff)
     zmin, zmax = 0,20.0*Hday
     zrange = np.linspace(zmin,zmax,nalt)
-    alt_range = zrange+R0
+    alt_range = zrange .+R0 
 
     atmosphere_grid =  np.meshgrid(alt_range,long_range,lat_range)
-    Temps = np.zeros(atmosphere_grid[0].shape) + Temp
+    #print(atmosphere_grid[1])
+    
+    Temps = np.zeros(size(atmosphere_grid[:1])) .+ Temp 
     
     # Make the matching pressure mapping on the 
     # atmosphere meshgrid    
-    Pressures = np.zeros(atmosphere_grid[0].shape)
+    Pressures = np.zeros(size(atmosphere_grid[:1]))
     pressures = [P0]
     g = geff
     p = P0
     z = 0
     M = Mp
-    mu = mu_func(Z,np.array([Temp]),np.array([p]))[0]*gmol_to_kg
+    mu = mu_func(Z,np.array([Temp]),np.array([p]))[0]*gmol_to_kg 
     r = R0
     for j in range(1,nalt,1)
         z1 = alt_range[j]-R0
@@ -96,6 +96,3 @@ function atm_setup_1d(Temp,Mp,R0,P0,nwl,nalt,nlong,nlat,mu_func,Z)
         
     return Temps, Pressures, alt_range, long_range, lat_range, atmosphere_grid  
 end 
-
-
-
