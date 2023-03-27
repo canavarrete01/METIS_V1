@@ -1,6 +1,5 @@
 # ----------------------------------------------------------------------------------------------
 using Plots
-using Pandas
 using PyCall
 np = pyimport("numpy")
 using SciPy.interpolate #using SciPy.interpolate #import RectBivariateSpline, interp1d, RegularGridInterpolator
@@ -12,21 +11,7 @@ include("Constants.jl")
     
 # code for interpolating adam's tables
 function read_abund_file(filename)
-    df = DataFrame(CSV.File(filename), header = 0)
-    
-    # df =  CSV.read(IOBuffer(filen), DataFrame; header=0)
-    
-    # dataframe = pandas.read_csv(filename,sep='\s+',skiprows=1,header=None)
-    # data = dataframe.values
-    #
-    # x,y = data.shape # array shape should be (86940, 32) #add in pyCall 
-    #if x == 86940 and y == 32
-    #   print('success reading: %s'%filename)
-    #  return data 
-    #else: 
-    #   print('check format of input table: %s'%filename)
-    #  return 1
-    #
+    df = DataFrame(CSV.File(filename, header = false))
 end
 
 
@@ -65,8 +50,8 @@ end
 
 function initiate_mu_abund_table_interpolators()
     mu_cube, abund_cube = [], []
-    for Z in [0.1,0.316,1.0,3.16]
-        filename = "Tables/EqChemAbund/abundance_%.3fsolar_rainoutTiVH2OFe.dat.gz"%Z
+    for Z in ["0.100","0.316","1.000","3.160"]
+        filename = "Tables/EqChemAbund/abundance_$(Z)solar_rainoutTiVH2OFe.dat.gz"
         t,p,cube = load_abund_table(filename)
 
         mu_grid = np.zeros((len(t),len(p)))
@@ -223,7 +208,7 @@ end
 #rayleigh_table = initiate_rayleigh_table_interpolator()
 #--------
 
-function abund_func(Z,T,P)
+function abund_func(Z,T,P) #rewritten, mar. 22
     # T - temperature in kelvin
     # P - pressure in pascals
     # returns 30 x nTP grid of molar mixing raitos
@@ -232,47 +217,59 @@ function abund_func(Z,T,P)
     #  Na, K, Rb, Cs, FeH, CrH, H-, H, H+, e-, Fe, SiO, CaOH,TiH, Al, Ca
     # and their indices can be easily obtained from the speciesdict
     # defined in absopac.py
-    log10_p = np.log10(abs.(P*pascals_to_bars*bars_to_atm))
+    log10_p = np.log10(np.abs(P*pascals_to_bars*bars_to_atm))
     log10_t = np.log10(T)
-    log10_p = np.log10(abs.(P*pascals_to_bars*bars_to_atm))
-    log10_t = np.log10(abs.(T))
+    log10_p = np.log10(np.abs(P*pascals_to_bars*bars_to_atm))
+    log10_t = np.log10(np.abs(T))
+    
     pmin = 8e-9
-    mask = np.where(log10_p < np.log10(pmin))
-    log10_p[mask] = np.log10(pmin)
+    mask = findall(log10_p .< np.log10(pmin))
+    log10_p[mask] .= np.log10(pmin)
+    
     pmax = 400
-    mask2 = np.where(log10_p > np.log10(pmax))
-    log10_p[mask2] = np.log10(pmax)
+    mask2 = findall(log10_p .> np.log10(pmax))
+    log10_p[mask2] .= np.log10(pmax)
+    
     tmin = 50
-    mask3 = np.where(log10_t < np.log10(tmin))
-    log10_t[mask3] = np.log10(tmin)
+    mask3 = findall(log10_t .< np.log10(tmin))
+    log10_t[mask3] .= np.log10(tmin)
+    
     tmax = 5000
-    mask4 = np.where(log10_t > np.log10(tmax))
-    log10_t[mask4] = np.log10(tmax) 
-    log10_Z = np.log10(Z)+np.zeros(len(log10_t))
+    mask4 = findall(log10_t .> np.log10(tmax))
+    log10_t[mask4] .= np.log10(tmax) 
+    log10_Z = np.log10(Z) .+ np.zeros(len(log10_t))
+    
     return  abund_table((log10_Z,log10_t,log10_p)) # molar mixing ratio    
 end
 
-function mu_func(Z,T,P)
+function mu_func(Z,T,P) #rewritten, mar 22
     # T - temperature in kelvin
     # P - pressure in pascals
     # returns the mean molecular weight of the atmosphere (gas only... ignores particulates)
-    log10_p = np.log10(abs.(P*pascals_to_bars*bars_to_atm))
-    log10_t = np.log10(abs.(T))
-    pmin = 8e-9
-    mask = np.where(log10_p < np.log10(pmin))
-    log10_p[mask] = np.log10(pmin)
+    log10_p = np.log10(np.abs.(P*pascals_to_bars*bars_to_atm))
+    log10_t = np.log10(np.abs.(T))
+    
+    pmin = (8e-9)
+    mask = findall(log10_p .< np.log10(pmin)) 
+    log10_p[mask] .= np.log10(pmin) # equal to np.log10(pmax)?
+    
     pmax = 400
-    mask2 = np.where(log10_p > np.log10(pmax))
-    log10_p[mask2] = np.log10(pmax)
+    mask2 = findall(log10_p .> np.log10(pmax))
+    log10_p[mask2] .= np.log10(pmax) 
+    
     tmin = 50
-    mask3 = np.where(log10_t < np.log10(tmin))
-    log10_t[mask3] = np.log10(tmin)
+    mask3 = findall(log10_t .< np.log10(tmin))
+    log10_t[mask3] .= np.log10(tmin)
+    
     tmax = 5000
-    mask4 = np.where(log10_t > np.log10(tmax))
-    log10_t[mask4] = np.log10(tmax)   
-    log10_Z = np.log10(Z)+np.zeros(len(log10_t))
+    mask4 = findall(log10_t .> np.log10(tmax))
+    log10_t[mask4] .= np.log10(tmax) 
+    
+    log10_Z = np.log10(Z) .+ np.zeros(length(log10_t)) 
+    
     return mu_table((log10_Z,log10_t,log10_p))
 end 
+
 
 function gasopac_func(Z,wl,T,rho)
     # Z is the metallicity in multiples of solar metallicity
@@ -282,7 +279,7 @@ function gasopac_func(Z,wl,T,rho)
     # returns the gas opacity
     # in units of cm^2/gram
     log10Z = np.log10(Z)
-    ln_rho_T = np.vstack((np.log(abs.(rho*kgcm_to_gccm)),np.log(T))) # now have (2,50) 
+    ln_rho_T = np.vstack((np.log(np.abs(rho*kgcm_to_gccm)),np.log(T))) # now have (2,50) 
                                                                        # [0] are the densities 
                                                                        # [1] are the temperatures  
 
