@@ -25,7 +25,7 @@ function convert_2d_to_3d_array(data)
      and the pressures are decreasing from high to low
      =#
 
-    sep = np.split(data,108,axis=0)
+    sep = np.split(data,108,axis=0) #np.split not working
     full = np.dstack(sep)
     temps = 10.0^full[:,0,0]
     pressures = 10.0^full[0,1,:]
@@ -44,7 +44,7 @@ function load_abund_table(filename)
     =#
     
     data = read_abund_file(filename)
-    t,p,cube = convert_2d_to_3d_array(data)
+    t,p,cube = convert_2d_to_3d_array(data) #BUG HERE
     return t,p,cube
 end
 
@@ -72,7 +72,7 @@ function initiate_mu_abund_table_interpolators()
     end 
     
     log_Z = np.log10(np.logspace(-1,1,4))    
-    log_t = np.log10(t)[:,:,-1] #reversed?
+    log_t = np.log10(t)[:,:,-1] 
     log_p = np.log10(p)[:,:,-1] 
     mufunc = RegularGridInterpolator((log_Z,log_t,log_p),np.array(mu_cube), method="linear")
     afunc = RegularGridInterpolator((log_Z,log_t,log_p),np.array(abund_cube), method="linear")
@@ -202,11 +202,11 @@ function initiate_rayleigh_table_interpolator()
     return rayleigh_table
 end 
 
-#ERROR ---------------------------------
-#mu_table, abund_table = initiate_mu_abund_table_interpolators() # interpolates grids in (log10Z, log10_t, log10_p)  
-#gasopac_table = initiate_opac_table_interpolator() # interpolates grid in (log10Z, ln_freq, ln_rho, ln_T)
-#rayleigh_table = initiate_rayleigh_table_interpolator()
-#--------
+
+mu_table, abund_table = initiate_mu_abund_table_interpolators() # interpolates grids in (log10Z, log10_t, log10_p)  
+gasopac_table = initiate_opac_table_interpolator() # interpolates grid in (log10Z, ln_freq, ln_rho, ln_T)
+rayleigh_table = initiate_rayleigh_table_interpolator()
+
 
 function abund_func(Z,T,P) #rewritten, mar. 22
     # T - temperature in kelvin
